@@ -6,40 +6,54 @@ class DatabaseLayer:
     def __init__(self, dsn):
         self.engine = create_engine(dsn)
 
-    def save_candles(self, df):
-        # Создаем таблицу, если нет (для простоты примера)
         with self.engine.connect() as conn:
+            # Создаем таблицу, если её нет
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS candles (
-                    time TIMESTAMPTZ PRIMARY KEY,
+                    time TIMESTAMP PRIMARY KEY,
                     symbol TEXT,
-                    open DOUBLE PRECISION,
-                    high DOUBLE PRECISION,
-                    low DOUBLE PRECISION,
-                    close DOUBLE PRECISION,
-                    volume DOUBLE PRECISION
+                    open REAL,
+                    high REAL,
+                    low REAL,
+                    close REAL,
+                    volume REAL
                 )
             """))
+
+            # Создаем индекс для ускорения поиска по времени
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_time ON candles(time)"))
             conn.commit()
 
-        # Upsert: если время есть, обновляем, иначе вставляем
-        # Это быстрее, чем цикл по строкам
-        df.to_sql('candles', self.engine, if_exists='append', index=False)
+    def save_candles(self, df):
+        if df.empty:
+            return
+
+        # Преобразуем время в строку перед сохранением
+        df['time'] = df['time'].dt.strftime('%Y-%m-%d %H:%M:%S')
 
         with self.engine.connect() as conn:
-            conn.execute(text("""
-                INSERT INTO candles (time, symbol, open, high, low, close, volume)
-                SELECT time, symbol, open, high, low, close, volume FROM candles
-                ON CONFLICT (time) DO UPDATE SET
-                    open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
-                    close = EXCLUDED.close, volume = EXCLUDED.volume
-            """))
+            for _, row in df.iterrows():
+                conn.execute(text("""
+                    INSERT OR REPLACE INTO candles (time, symbol, open, high, low, close, volume)
+                    VALUES (:time, :symbol, :open, :high, :low, :close, :volume)
+                """), {
+                    "time": row["time"],
+                    "symbol": row["symbol"] if "symbol" in row else "BTCUSDT",
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["volume"]),
+                })
             conn.commit()
 
     def get_data(self, symbol, days=180):
+        # Изменили порядок сортировки на ASC для хронологического порядка
         query = f"""
             SELECT * FROM candles 
             WHERE symbol = '{symbol}' 
-            ORDER BY time DESC LIMIT {days}
+            ORDER BY time ASC LIMIT {days}
         """
-        return pd.read_sql(query, self.engine)
+        # При получении данных преобразуем время обратно в datetime
+        df = pd.read_sql(query, self.engine, parse_dates=['time'])
+        return df

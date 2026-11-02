@@ -1,15 +1,49 @@
+# bybit_client.py
 from pybit.unified_trading import HTTP
 import pandas as pd
 
 class BybitClient:
     def __init__(self):
-        # testnet=False для продакшена
         self.client = HTTP(testnet=False)
 
     def fetch_candles(self, symbol, interval, limit=1000):
-        resp = self.client.query_kline(symbol=symbol, interval=interval, limit=limit)
-        data = resp["result"]["list"]
-        df = pd.DataFrame(data, columns=["time", "open", "high", "low", "close", "volume"])
-        df["time"] = pd.to_datetime(df["time"], unit="ms")
-        df = df.astype({"open": float, "high": float, "low": float, "close": float, "volume": float})
-        return df
+        try:
+            resp = self.client.get_kline(
+                category="linear",
+                symbol=symbol,
+                interval=interval,
+                limit=limit
+            )
+
+            if resp.get("retCode") != 0:
+                raise Exception(f"Bybit API error: {resp.get('retMsg')}")
+
+            data = resp["result"]["list"]
+
+            # Создаем DataFrame
+            df = pd.DataFrame(
+                data,
+                columns=[
+                    "time",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "volume",
+                    "turnover"
+                ]
+            )
+
+            # Преобразуем время в два этапа
+            df["time"] = df["time"].astype(int)  # Сначала в int
+            df["time"] = pd.to_datetime(df["time"], unit="ms")  # Затем в datetime
+
+            # Приведение к float
+            numeric_cols = ["open", "high", "low", "close", "volume", "turnover"]
+            df[numeric_cols] = df[numeric_cols].astype(float)
+
+            return df
+
+        except Exception as e:
+            print(f"❌ Ошибка при загрузке свечей: {e}")
+            raise
