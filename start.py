@@ -2,7 +2,8 @@
 from config import (
     SYMBOL, TIMEFRAME, DB_DSN, HISTORY_DAYS,
     NTFY_TOPIC, ENABLE_NOTIFICATIONS,
-    SIGNAL_THRESHOLD_STRONG, SIGNAL_THRESHOLD_WEAK
+    SIGNAL_THRESHOLD_STRONG, SIGNAL_THRESHOLD_WEAK,
+    ENABLE_VISUALIZATION, VIZ_HISTORY_DAYS, VIZ_SAMPLES
 )
 from bybit_client import BybitClient
 from db_layer import DatabaseLayer
@@ -23,7 +24,10 @@ if __name__ == "__main__":
         ntfy_topic=NTFY_TOPIC,
         enable_notifications=ENABLE_NOTIFICATIONS,
         signal_threshold_strong=SIGNAL_THRESHOLD_STRONG,
-        signal_threshold_weak=SIGNAL_THRESHOLD_WEAK
+        signal_threshold_weak=SIGNAL_THRESHOLD_WEAK,
+        enable_visualization=ENABLE_VISUALIZATION,
+        viz_history_days=VIZ_HISTORY_DAYS,
+        viz_samples=VIZ_SAMPLES
     )
 
     fsm.run()

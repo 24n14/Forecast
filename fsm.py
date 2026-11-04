@@ -3,12 +3,15 @@ from enum import Enum, auto
 from forecaster import Forecaster
 from signal_generator import SignalGenerator
 from notifier import Notifier
+from visualization import plot_forecast_cloud
+import os
 
 
 class State(Enum):
     START = auto()
     DOWNLOAD = auto()
     FORECAST = auto()
+    VISUALIZE = auto()
     NOTIFY = auto()
     DONE = auto()
     ERROR = auto()
@@ -19,12 +22,19 @@ class TradingFSM:
     # ✅ СТАЛО: передаём конкретные значения, а не весь конфиг
     def __init__(self, client, db, symbol, timeframe, history_days,
                  ntfy_topic=None, enable_notifications=True,
-                 signal_threshold_strong=10.0, signal_threshold_weak=5.0):
+                 signal_threshold_strong=10.0, signal_threshold_weak=5.0,
+                 enable_visualization=True, viz_history_days=60, viz_samples=300):
         self.client = client
         self.db = db
         self.symbol = symbol
         self.timeframe = timeframe
         self.history_days = history_days
+
+        # Визуализация
+        self.enable_visualization = enable_visualization
+        self.viz_history_days = viz_history_days
+        self.viz_samples = viz_samples
+        self.forecast_image_path = None
 
         # Загружаем модель прогнозирования
         try:
@@ -104,14 +114,49 @@ class TradingFSM:
                     print(self.signal_generator.format_signal(self.signal, self.forecast))
                     print("="*60 + "\n")
 
-                    # Переходим к уведомлениям
-                    self.state = State.NOTIFY
+                    # Переходим к визуализации
+                    if self.enable_visualization:
+                        self.state = State.VISUALIZE
+                    else:
+                        self.state = State.NOTIFY
 
                 except Exception as e:
                     print(f"❌ Ошибка прогноза: {e}")
                     import traceback
                     traceback.print_exc()
                     self.state = State.ERROR
+
+            elif self.state == State.VISUALIZE:
+                try:
+                    print("🎨 Создание визуализации...")
+                    df = self.db.get_all_data(self.symbol)
+
+                    # Создаём папку для графиков, если её нет
+                    os.makedirs('forecasts', exist_ok=True)
+
+                    # Путь к файлу
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+                    self.forecast_image_path = f'forecasts/{timestamp}_forecast_cloud.png'
+
+                    # Генерируем график
+                    plot_forecast_cloud(
+                        history_df=df,
+                        forecast=self.forecast,
+                        save_path=self.forecast_image_path,
+                        n_samples=self.viz_samples,
+                        history_days=self.viz_history_days
+                    )
+
+                    self.state = State.NOTIFY
+
+                except Exception as e:
+                    print(f"⚠️  Ошибка визуализации: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Не критично, продолжаем без графика
+                    self.forecast_image_path = None
+                    self.state = State.NOTIFY
 
             elif self.state == State.NOTIFY:
                 try:
@@ -132,13 +177,23 @@ class TradingFSM:
                             priority = 3
                             tags = ['chart', 'bell']
 
-                        # Отправляем
-                        self.notifier.send(
-                            message=message,
-                            title=f"🔮 {self.symbol} Прогноз",
-                            priority=priority,
-                            tags=tags
-                        )
+                        # Отправляем с графиком (если он есть)
+                        if self.forecast_image_path and os.path.exists(self.forecast_image_path):
+                            self.notifier.send_with_image(
+                                message=message,
+                                title=f"🔮 {self.symbol} Прогноз",
+                                image_path=self.forecast_image_path,
+                                priority=priority,
+                                tags=tags
+                            )
+                        else:
+                            # Отправляем без графика
+                            self.notifier.send(
+                                message=message,
+                                title=f"🔮 {self.symbol} Прогноз",
+                                priority=priority,
+                                tags=tags
+                            )
                     else:
                         print("ℹ️  Уведомления отключены")
 
