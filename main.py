@@ -3,7 +3,7 @@
 # Главная точка входа бота с поддержкой однократного и циклического запуска
 import argparse
 from config import (
-    SYMBOL, TIMEFRAME, DB_DSN, HISTORY_DAYS,
+    SYMBOL, TIMEFRAME, DB_DSN,
     NTFY_TOPIC, ENABLE_NOTIFICATIONS,
     SIGNAL_THRESHOLD_STRONG, SIGNAL_THRESHOLD_WEAK,
     ENABLE_VISUALIZATION, VIZ_HISTORY_DAYS, VIZ_SAMPLES,
@@ -27,7 +27,6 @@ def run_bot():
         db=db,
         symbol=SYMBOL,
         timeframe=TIMEFRAME,
-        history_days=HISTORY_DAYS,
         ntfy_topic=NTFY_TOPIC,
         enable_notifications=ENABLE_NOTIFICATIONS,
         signal_threshold_strong=SIGNAL_THRESHOLD_STRONG,

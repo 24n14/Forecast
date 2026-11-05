@@ -25,9 +25,6 @@ class SignalGenerator:
             dict: {
                 'signal': 'STRONG_BULLISH' | 'WEAK_BULLISH' | 'NEUTRAL' | 'WEAK_BEARISH' | 'STRONG_BEARISH',
                 'confidence': 'HIGH' | 'MEDIUM' | 'LOW',
-                'summary': str описание сигнала,
-                'median_change': float изменение медианы в %,
-                'risk_range': (float, float) диапазон [q05, q95],
             }
         """
         q05 = forecast['quantiles'][0.05]['change_pct']
@@ -65,20 +62,9 @@ class SignalGenerator:
             confidence = 'LOW'
             confidence_emoji = '💡'
 
-        # Собираем описание
-        summary_parts = [
-            f"{emoji} Сигнал: {signal}",
-            f"{confidence_emoji} Уверенность: {confidence}",
-            f"Медиана: {q50:+.2f}%",
-            f"Диапазон: [{q05:+.2f}%, {q95:+.2f}%]"
-        ]
-
         return {
             'signal': signal,
             'confidence': confidence,
-            'summary': '\n'.join(summary_parts),
-            'median_change': q50,
-            'risk_range': (q05, q95),
             'emoji': emoji,
             'confidence_emoji': confidence_emoji,
         }

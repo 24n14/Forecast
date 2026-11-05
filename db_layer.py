@@ -47,17 +47,6 @@ class DatabaseLayer:
                 })
             conn.commit()
 
-    def get_data(self, symbol, days=180):
-        # Изменили порядок сортировки на ASC для хронологического порядка
-        query = f"""
-            SELECT * FROM candles
-            WHERE symbol = '{symbol}'
-            ORDER BY time ASC LIMIT {days}
-        """
-        # При получении данных преобразуем время обратно в datetime
-        df = pd.read_sql(query, self.engine, parse_dates=['time'])
-        return df
-
     def get_all_data(self, symbol):
         """Вся история по символу в хронологическом порядке (для обучения модели)."""
         query = text("SELECT * FROM candles WHERE symbol = :symbol ORDER BY time ASC")

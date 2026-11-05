@@ -18,9 +18,7 @@ class State(Enum):
 
 
 class TradingFSM:
-    # ❌ БЫЛО: def __init__(self, client, db, symbol, config):
-    # ✅ СТАЛО: передаём конкретные значения, а не весь конфиг
-    def __init__(self, client, db, symbol, timeframe, history_days,
+    def __init__(self, client, db, symbol, timeframe,
                  ntfy_topic=None, enable_notifications=True,
                  signal_threshold_strong=10.0, signal_threshold_weak=5.0,
                  enable_visualization=True, viz_history_days=60, viz_samples=300):
@@ -28,7 +26,6 @@ class TradingFSM:
         self.db = db
         self.symbol = symbol
         self.timeframe = timeframe
-        self.history_days = history_days
 
         # Визуализация
         self.enable_visualization = enable_visualization
@@ -72,7 +69,6 @@ class TradingFSM:
             elif self.state == State.DOWNLOAD:
                 try:
                     print("📥 Загрузка свечей...")
-                    # ✅ Используем self.timeframe вместо self.config.TIMEFRAME
                     raw_df = self.client.fetch_candles(
                         symbol=self.symbol,
                         interval=self.timeframe,

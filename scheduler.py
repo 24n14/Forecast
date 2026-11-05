@@ -34,20 +34,16 @@ class BotScheduler:
             import traceback
             traceback.print_exc()
 
-    def run_once(self):
-        """Запустить бота один раз."""
-        print("🚀 Однократный запуск...")
-        self.job_wrapper()
-
     def run_scheduled(self):
         """Запустить планировщик с заданным расписанием."""
         print(f"📅 Планировщик запущен")
         print(f"⏰ Расписание: каждый день в {self.schedule_time} ({self.timezone})")
-        print(f"⏳ Следующий запуск: {schedule.next_run()}")
-        print(f"   Ctrl+C для остановки\n")
 
         # Настраиваем расписание
         schedule.every().day.at(self.schedule_time).do(self.job_wrapper)
+
+        print(f"⏳ Следующий запуск: {schedule.next_run()}")
+        print(f"   Ctrl+C для остановки\n")
 
         self.is_running = True
 
@@ -65,18 +61,3 @@ class BotScheduler:
         self.is_running = False
         schedule.clear()
         print("🛑 Планировщик остановлен")
-
-
-if __name__ == "__main__":
-    # Тест
-    def test_job():
-        print("Выполняется тестовая задача...")
-        time.sleep(2)
-        print("Задача завершена")
-
-    scheduler = BotScheduler(run_func=test_job, schedule_time="00:00")
-    print("Тест однократного запуска:")
-    scheduler.run_once()
-
-    print("\nДля теста планировщика запустите:")
-    print("  python scheduler.py --scheduled")

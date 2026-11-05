@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 from ta_engine import add_features
 
-
 class Forecaster:
     """Загружает обученную модель и делает прогнозы на основе последних данных."""
 
@@ -127,32 +126,3 @@ class Forecaster:
             }
 
         return result
-
-    def format_forecast(self, forecast):
-        """Форматирует прогноз в читаемую строку."""
-        lines = []
-        lines.append(f"📊 Прогноз на {forecast['forecast_horizon']} дней")
-        lines.append(f"От: {forecast['current_date'].strftime('%Y-%m-%d')} | Цена: ${forecast['current_price']:,.2f}")
-        lines.append("")
-
-        for q, data in forecast['quantiles'].items():
-            q_label = f"q{int(q*100):02d}"
-            change = data['change_pct']
-            target = data['target_price']
-            emoji = "🟢" if change > 0 else "🔴" if change < 0 else "⚪"
-            lines.append(f"{emoji} {q_label}: {change:+6.2f}% → ${target:,.2f}")
-
-        return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    # Тест модуля
-    from db_layer import DatabaseLayer
-    from config import DB_DSN, SYMBOL
-
-    db = DatabaseLayer(DB_DSN)
-    df = db.get_all_data(SYMBOL)
-
-    forecaster = Forecaster()
-    forecast = forecaster.predict(df)
-    print(forecaster.format_forecast(forecast))

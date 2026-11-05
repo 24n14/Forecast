@@ -33,7 +33,6 @@ pip install -r requirements.txt
 # Торговые настройки
 SYMBOL = "BTCUSDT"
 TIMEFRAME = "D"
-HISTORY_DAYS = 180
 
 # Уведомления
 NTFY_TOPIC = "forecaster_24n14"
@@ -64,12 +63,6 @@ python main.py
 
 # Или через аргументы командной строки
 python main.py --scheduled --schedule-time "09:00"
-```
-
-### Старый метод (без планировщика)
-
-```bash
-python start.py
 ```
 
 ## 📊 Как работает прогноз
@@ -116,7 +109,6 @@ python model_trainer.py
 ```
 .
 ├── main.py                # Точка входа с планировщиком
-├── start.py               # Старая точка входа (однократный запуск)
 ├── config.py              # Настройки бота
 ├── fsm.py                 # Конечный автомат (FSM)
 ├── forecaster.py          # Модуль прогнозирования

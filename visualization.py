@@ -9,7 +9,6 @@ import matplotlib.dates as mdates
 
 Z90 = 1.645  # z-оценка 95-го квантиля нормального распределения
 
-
 def _quantile_params(forecast):
     """Медиана и раздельные σ вниз/вверх, чтобы сохранить асимметрию прогноза."""
     q05 = forecast['quantiles'][0.05]['change_pct']
@@ -18,7 +17,6 @@ def _quantile_params(forecast):
     sigma_down = max(q50 - q05, 1e-6) / Z90
     sigma_up = max(q95 - q50, 1e-6) / Z90
     return q50, sigma_down, sigma_up
-
 
 def generate_scenario_samples(forecast, n_samples=300, rng=None):
     """
@@ -47,7 +45,6 @@ def generate_scenario_samples(forecast, n_samples=300, rng=None):
     change = drift + np.where(z > 0, z * sigma_up, z * sigma_down)
     return current_price * (1 + change / 100)
 
-
 def quantile_band(forecast):
     """Линии q05 / q50 / q95 по дням — та же форма √t, что и у облака."""
     current_price = forecast['current_price']
@@ -61,7 +58,6 @@ def quantile_band(forecast):
     return (to_price(drift - spread * sigma_down),
             to_price(drift),
             to_price(drift + spread * sigma_up))
-
 
 def plot_forecast_cloud(history_df, forecast, save_path='forecast_cloud.png',
                         n_samples=300, history_days=60, symbol='BTC/USDT'):
@@ -140,22 +136,3 @@ def plot_forecast_cloud(history_df, forecast, save_path='forecast_cloud.png',
 
     print(f"📊 График сохранён: {save_path}")
     return save_path
-
-
-if __name__ == "__main__":
-    from db_layer import DatabaseLayer
-    from forecaster import Forecaster
-    from config import DB_DSN, SYMBOL
-
-    df = DatabaseLayer(DB_DSN).get_all_data(SYMBOL)
-    forecast = Forecaster().predict(df)
-
-    # Проверка калибровки: перцентили облака на последнем дне должны совпасть с q05/q50/q95
-    sims = generate_scenario_samples(forecast, 20000)[:, -1]
-    p05, p50, p95 = np.percentile(sims, [5, 50, 95])
-    print(f"Облако, день {forecast['forecast_horizon']}: p05={p05:,.0f} p50={p50:,.0f} p95={p95:,.0f}")
-    print(f"Модель:            q05={forecast['quantiles'][0.05]['target_price']:,.0f} "
-          f"q50={forecast['quantiles'][0.5]['target_price']:,.0f} "
-          f"q95={forecast['quantiles'][0.95]['target_price']:,.0f}")
-
-    plot_forecast_cloud(df, forecast, save_path='forecasts/test_forecast_cloud.png')

@@ -3,7 +3,6 @@
 import requests
 import os
 
-
 class Notifier:
     """Отправляет уведомления на ntfy.sh."""
 
@@ -109,14 +108,3 @@ class Notifier:
 
         # 2. Текст прогноза — через JSON, unicode поддерживается полностью
         return self.send(message, title, priority, tags)
-
-
-if __name__ == "__main__":
-    # Тест
-    notifier = Notifier("forecaster_24n14")
-    notifier.send(
-        message="Тестовое сообщение от бота прогнозирования",
-        title="🤖 Forecast Bot",
-        priority=3,
-        tags=['robot', 'test']
-    )
