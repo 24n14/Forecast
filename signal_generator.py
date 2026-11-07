@@ -80,6 +80,8 @@ class SignalGenerator:
                 lines.append(f"  больше {threshold:g}%: {p:.0%}")
 
         lines += ["", "🧭 Направление: не прогнозируется (модель оценивает только размах)."]
+        if forecast.get('model'):
+            lines.append(f"🤖 Модель: {forecast['model']}")
         return '\n'.join(lines)
 
 

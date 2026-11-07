@@ -1,6 +1,6 @@
 # fsm.py
 from enum import Enum, auto
-from vol_model import HarForecaster
+from ensemble import EnsembleForecaster
 from signal_generator import SignalGenerator
 from notifier import Notifier
 from visualization import plot_forecast_cloud
@@ -34,7 +34,7 @@ class TradingFSM:
 
         # Загружаем модель прогнозирования
         try:
-            self.forecaster = HarForecaster()
+            self.forecaster = EnsembleForecaster()
         except FileNotFoundError as e:
             print(f"⚠️  {e}")
             print("   Бот продолжит работу без прогнозов.")

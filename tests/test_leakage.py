@@ -9,6 +9,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from vol_model import har_frame, HAR_COLS, train_set  # noqa: E402
+from ta_engine import add_features, aggregate_window  # noqa: E402
 
 CPD, H = 6, 42
 
@@ -35,6 +36,24 @@ def features_unaffected_by_future(make_features, cols, cut=1500):
 
 def test_har_features_have_no_lookahead():
     assert features_unaffected_by_future(lambda d: har_frame(d, CPD, H), HAR_COLS)
+
+
+def test_indicator_features_have_no_lookahead():
+    # Индикаторы LightGBM (SMA, RSI, ATR, MACD, Боллинджер, OBV, паттерны)
+    cols = ['sma_20', 'rsi_14', 'atr_14', 'macd', 'macd_signal', 'macd_hist', 'bb_upper', 'bb_lower',
+            'obv', 'is_bullish_pattern', 'is_bearish_pattern']
+    assert features_unaffected_by_future(lambda d: add_features(d.copy()), cols)
+
+
+def test_window_aggregate_has_no_lookahead():
+    # Признаки окна, оканчивающегося на свече cut, не зависят от свечей после неё
+    cut, window = 1500, 180
+    df = synthetic_candles()
+    spoiled = df.copy()
+    spoiled.loc[cut + 1:, ['open', 'high', 'low', 'close', 'volume']] *= 999
+    a = aggregate_window(add_features(df.copy()).iloc[cut - window + 1:cut + 1], CPD)
+    b = aggregate_window(add_features(spoiled.copy()).iloc[cut - window + 1:cut + 1], CPD)
+    assert all(np.isclose(a[k], b[k], equal_nan=True) for k in a)
 
 
 def test_method_catches_leaky_feature():
