@@ -5,7 +5,7 @@ import argparse
 from config import (
     SYMBOL, TIMEFRAME, DB_DSN,
     NTFY_TOPIC, ENABLE_NOTIFICATIONS,
-    ENABLE_VISUALIZATION, VIZ_HISTORY_DAYS, VIZ_SAMPLES,
+    ENABLE_VISUALIZATION,
     SCHEDULE_ENABLED, SCHEDULE_TIME, SCHEDULE_TIMEZONE
 )
 from bybit_client import BybitClient
@@ -29,8 +29,6 @@ def run_bot():
         ntfy_topic=NTFY_TOPIC,
         enable_notifications=ENABLE_NOTIFICATIONS,
         enable_visualization=ENABLE_VISUALIZATION,
-        viz_history_days=VIZ_HISTORY_DAYS,
-        viz_samples=VIZ_SAMPLES
     )
 
     fsm.run()

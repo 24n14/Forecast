@@ -3,7 +3,7 @@ from enum import Enum, auto
 from ensemble import EnsembleForecaster
 from signal_generator import SignalGenerator
 from notifier import Notifier
-from visualization import plot_forecast_cloud
+from visualization import plot_forecast_bars
 import os
 
 
@@ -20,7 +20,7 @@ class State(Enum):
 class TradingFSM:
     def __init__(self, client, db, symbol, timeframe,
                  ntfy_topic=None, enable_notifications=True,
-                 enable_visualization=True, viz_history_days=60, viz_samples=300):
+                 enable_visualization=True):
         self.client = client
         self.db = db
         self.symbol = symbol
@@ -28,8 +28,6 @@ class TradingFSM:
 
         # Визуализация
         self.enable_visualization = enable_visualization
-        self.viz_history_days = viz_history_days
-        self.viz_samples = viz_samples
         self.forecast_image_path = None
 
         # Загружаем модель прогнозирования
@@ -129,15 +127,13 @@ class TradingFSM:
                     # Путь к файлу
                     from datetime import datetime
                     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-                    self.forecast_image_path = f'forecasts/{timestamp}_forecast_cloud.png'
+                    self.forecast_image_path = f'forecasts/{timestamp}_forecast_bars.png'
 
                     # Генерируем график
-                    plot_forecast_cloud(
+                    plot_forecast_bars(
                         history_df=df,
                         forecast=self.forecast,
-                        save_path=self.forecast_image_path,
-                        n_samples=self.viz_samples,
-                        history_days=self.viz_history_days * self.forecaster.candles_per_day
+                        save_path=self.forecast_image_path
                     )
 
                     self.state = State.NOTIFY
