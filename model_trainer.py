@@ -9,13 +9,15 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 
-from config import SYMBOL, DB_DSN
+from config import SYMBOL, DB_DSN, TIMEFRAME, WINDOW_DAYS, FORECAST_DAYS, candles_per_day
 from ta_engine import add_features, aggregate_window
 
 # Параметры
-WINDOW_SIZE = 30           # Размер окна (дней) для одного примера
-FORECAST_HORIZON = 7       # Прогноз на N дней вперёд (1 неделя)
-MIN_TRAIN_WINDOWS = 60     # Минимум окон для первого обучения (~2 месяца)
+CPD = candles_per_day(TIMEFRAME)  # Свечей в сутках (D=1, 4h=6)
+WINDOW_SIZE = WINDOW_DAYS * CPD  # Размер окна в свечах
+FORECAST_HORIZON = FORECAST_DAYS * CPD  # Горизонт прогноза в свечах
+MIN_TRAIN_WINDOWS = 60 * CPD  # Минимум окон для первого обучения (~2 месяца)
+WF_STEP = 10 * CPD  # Шаг walk-forward проверки (~10 дней)
 STEP = 1                   # Шаг скольжения (1 = максимальное перекрытие)
 MODEL_DIR = "models"
 QUANTILES = [0.05, 0.5, 0.95]
@@ -48,7 +50,7 @@ def build_sliding_windows(df):
         window_df = df.iloc[i - WINDOW_SIZE:i].copy()
 
         # Агрегируем окно
-        features = aggregate_window(window_df)
+        features = aggregate_window(window_df, CPD)
         features['window_start'] = window_df['time'].iloc[0]
         features['window_end'] = window_df['time'].iloc[-1]
         features['last_close'] = window_df['close'].iloc[-1]
@@ -81,12 +83,20 @@ def pinball_loss(y, pred, q):
     return np.mean(np.maximum(q * diff, (q - 1) * diff))
 
 
+# CQR-поправка: на сколько п.п. расширить [q05, q95] с каждой стороны, чтобы покрытие было ~90%
+def conformal_correction(report, alpha=0.1):
+    scores = np.maximum(report['pred_q05'] - report['actual'], report['actual'] - report['pred_q95']).values
+    m = len(scores)
+    level = min(1.0, np.ceil((m + 1) * (1 - alpha)) / m)
+    return float(np.quantile(scores, level))
+
+
 def train_walk_forward():
     """Walk-forward валидация по скользящим окнам."""
     from db_layer import DatabaseLayer
 
     db = DatabaseLayer(DB_DSN)
-    df_raw = db.get_all_data(SYMBOL)
+    df_raw = db.get_all_data(SYMBOL, TIMEFRAME)
 
     print(f"📦 Загружено {len(df_raw)} свечей: {df_raw['time'].min().date()} — {df_raw['time'].max().date()}")
 
@@ -95,7 +105,7 @@ def train_walk_forward():
     feature_cols = [col for col in df.columns if col not in ['window_start', 'window_end', 'last_close', 'target']]
     n_windows = len(df)
 
-    print(f"📊 Скользящих окон: {n_windows}, размер окна: {WINDOW_SIZE} дней, прогноз: {FORECAST_HORIZON} дней")
+    print(f"📊 Скользящих окон: {n_windows}, ТФ: {TIMEFRAME}, размер окна: {WINDOW_DAYS} дней, прогноз: {FORECAST_DAYS} дней")
     print(f"Признаков: {len(feature_cols)}")
     print(f"Первое окно: {df['window_start'].iloc[0].date()} — {df['window_end'].iloc[0].date()}")
     print(f"Последнее окно: {df['window_start'].iloc[-1].date()} — {df['window_end'].iloc[-1].date()}\n")
@@ -106,10 +116,11 @@ def train_walk_forward():
     # Walk-forward: учимся на первых k окнах, проверяем на k+1
     # Проверяем каждые 10 окон (~10 дней)
     results = []
-    test_steps = list(range(MIN_TRAIN_WINDOWS, n_windows, 10))
+    test_steps = list(range(MIN_TRAIN_WINDOWS, n_windows, WF_STEP))
 
     for k in test_steps:
-        train = df.iloc[:k]
+        # Purge: цели последних FORECAST_HORIZON окон заходят в период проверяемого окна (утечка)
+        train = df.iloc[:k - FORECAST_HORIZON]
         test = df.iloc[[k]]
 
         X_train, y_train = train[feature_cols], train['target']
@@ -160,6 +171,8 @@ def train_walk_forward():
     report.to_csv(os.path.join(MODEL_DIR, 'walk_forward_sliding.csv'), index=False)
 
     coverage = report['in_interval'].mean()
+    correction = conformal_correction(report)
+    print(f'Поправка CQR: ±{correction:.2f} п.п. (сохраняется в модель)')
     wins = (report['model_loss'] < report['base_loss']).mean()
 
     print("\n" + "="*90)
@@ -186,8 +199,12 @@ def train_walk_forward():
         'features': feature_cols,
         'quantiles': QUANTILES,
         'window_size': WINDOW_SIZE,
-        'forecast_horizon': FORECAST_HORIZON,
+        'forecast_horizon': FORECAST_DAYS,
+        'forecast_horizon_candles': FORECAST_HORIZON,
+        'candles_per_day': CPD,
+        'timeframe': TIMEFRAME,
         'trained_windows': n_windows,
+        'conformal_correction': correction,
         'last_date': df['window_end'].iloc[-1],
     }, model_path)
 
@@ -199,7 +216,7 @@ def train_walk_forward():
     pred_current = predict_quantiles(final_models, X_current)[0]
     current_close = current_window['last_close'].iloc[0]
 
-    print(f"\n🔮 ПРОГНОЗ на следующие {FORECAST_HORIZON} дней")
+    print(f"\n🔮 ПРОГНОЗ на следующие {FORECAST_DAYS} дней")
     print(f"От: {current_window['window_end'].iloc[0].date()} (close ${current_close:,.1f})")
     print(f"Квантили изменения цены:")
     for q, v in zip(QUANTILES, pred_current):

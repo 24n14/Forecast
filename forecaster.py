@@ -19,9 +19,12 @@ class Forecaster:
         self.features = model_data['features']
         self.quantiles = model_data['quantiles']
         self.window_size = model_data['window_size']
-        self.forecast_horizon = model_data['forecast_horizon']
+        self.forecast_horizon = model_data['forecast_horizon']  # в днях
+        self.candles_per_day = model_data.get('candles_per_day', 1)
+        self.timeframe = model_data.get('timeframe', 'D')
+        self.conformal_correction = model_data.get('conformal_correction', 0.0)
 
-        print(f"✅ Модель загружена: окно={self.window_size} дней, прогноз={self.forecast_horizon} дней")
+        print(f"✅ Модель загружена: ТФ={self.timeframe}, окно={self.window_size // self.candles_per_day} дней, прогноз={self.forecast_horizon} дней")
 
     def predict(self, df):
         """
@@ -50,7 +53,7 @@ class Forecaster:
         window_df = df.iloc[-self.window_size:].copy()
 
         # Агрегируем признаки
-        features = aggregate_window(window_df)
+        features = aggregate_window(window_df, self.candles_per_day)
         X = pd.DataFrame([{k: features[k] for k in self.features}])
 
         # Прогноз по квантилям
@@ -62,6 +65,10 @@ class Forecaster:
         # Упорядочиваем квантили (на случай пересечения)
         sorted_values = np.sort(list(predictions.values()))
         predictions = {q: v for q, v in zip(self.quantiles, sorted_values)}
+
+        # Conformal-поправка: расширяем внешние квантили, чтобы покрытие [q05, q95] было ~90%
+        predictions[self.quantiles[0]] -= self.conformal_correction
+        predictions[self.quantiles[-1]] += self.conformal_correction
 
         # Текущая цена и дата
         current_price = window_df['close'].iloc[-1]

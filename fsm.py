@@ -76,7 +76,7 @@ class TradingFSM:
                     )
 
                     if raw_df is not None and not raw_df.empty:
-                        self.db.save_candles(raw_df)
+                        self.db.save_candles(raw_df, self.symbol, self.timeframe)
                         print("✅ Свечи сохранены в БД.")
                         self.state = State.FORECAST
                     else:
@@ -94,7 +94,7 @@ class TradingFSM:
                         continue
 
                     print("🔮 Создание прогноза...")
-                    df = self.db.get_all_data(self.symbol)
+                    df = self.db.get_all_data(self.symbol, self.timeframe)
 
                     if len(df) == 0:
                         raise ValueError("Нет данных в базе!")
@@ -125,7 +125,7 @@ class TradingFSM:
             elif self.state == State.VISUALIZE:
                 try:
                     print("🎨 Создание визуализации...")
-                    df = self.db.get_all_data(self.symbol)
+                    df = self.db.get_all_data(self.symbol, self.timeframe)
 
                     # Создаём папку для графиков, если её нет
                     os.makedirs('forecasts', exist_ok=True)
@@ -141,7 +141,7 @@ class TradingFSM:
                         forecast=self.forecast,
                         save_path=self.forecast_image_path,
                         n_samples=self.viz_samples,
-                        history_days=self.viz_history_days
+                        history_days=self.viz_history_days * self.forecaster.candles_per_day
                     )
 
                     self.state = State.NOTIFY

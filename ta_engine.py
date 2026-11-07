@@ -66,8 +66,13 @@ def _trend(values):
     return float(np.corrcoef(np.arange(len(values)), values)[0, 1])
 
 
-def aggregate_window(window_df):
-    """Агрегирует окно свечей (после add_features) в словарь признаков."""
+def aggregate_window(window_df, candles_per_day=1):
+    """Агрегирует окно свечей (после add_features) в словарь признаков.
+
+    candles_per_day: свечей в одном дне (D=1, 4h=6) — чтобы "неделя" и "3 дня" означали календарные дни.
+    """
+    week = 7 * candles_per_day
+    three_days = 3 * candles_per_day
     c = window_df['close'].values
     first_close = c[0]
     last_close = c[-1]
@@ -79,7 +84,7 @@ def aggregate_window(window_df):
     macd_hist_pct = window_df['macd_hist'] / window_df['close'] * 100
 
     obv = window_df['obv'].values
-    vol_7d = window_df['volume'].iloc[-7:].sum()
+    vol_7d = window_df['volume'].iloc[-week:].sum()
 
     features = {
         # Динамика цены
@@ -108,7 +113,7 @@ def aggregate_window(window_df):
         # MACD (в % от цены, чтобы не зависеть от уровня цены)
         'macd_pct_last': last['macd'] / last_close * 100,
         'macd_hist_pct_last': macd_hist_pct.iloc[-1],
-        'macd_hist_slope_3d': macd_hist_pct.iloc[-1] - macd_hist_pct.iloc[-4],
+        'macd_hist_slope_3d': macd_hist_pct.iloc[-1] - macd_hist_pct.iloc[-(three_days + 1)],
 
         # Полосы Боллинджера: положение цены (%B) и ширина (сжатие перед движением)
         'bb_pctb_last': (last_close - last['bb_lower']) / bb_range if bb_range > 0 else 0.5,
@@ -117,24 +122,24 @@ def aggregate_window(window_df):
 
         # OBV: тренд за окно и чистый поток объёма за неделю (-1 ... +1)
         'obv_trend': _trend(obv),
-        'obv_flow_7d': (obv[-1] - obv[-8]) / vol_7d if vol_7d > 0 else 0,
+        'obv_flow_7d': (obv[-1] - obv[-(week + 1)]) / vol_7d if vol_7d > 0 else 0,
 
         # Паттерны
         'bullish_pattern_count': window_df['is_bullish_pattern'].sum(),
         'bullish_pattern_pct': window_df['is_bullish_pattern'].mean() * 100,
         'bearish_pattern_count': window_df['is_bearish_pattern'].sum(),
-        'pattern_balance_7d': (window_df['is_bullish_pattern'].iloc[-7:].sum()
-                               - window_df['is_bearish_pattern'].iloc[-7:].sum()),
+        'pattern_balance_7d': (window_df['is_bullish_pattern'].iloc[-week:].sum()
+                               - window_df['is_bearish_pattern'].iloc[-week:].sum()),
 
         # Тренд
         'price_trend': _trend(c),
 
         # Последняя неделя
-        'last_week_return': (c[-1] / c[-7] - 1) * 100,
-        'last_week_vol': np.std(np.diff(np.log(c[-7:]))) * np.sqrt(7) * 100,
+        'last_week_return': (c[-1] / c[-(week + 1)] - 1) * 100,
+        'last_week_vol': np.std(np.diff(np.log(c[-(week + 1):]))) * np.sqrt(week) * 100,
 
         # Последние 3 дня
-        'last_3d_return': (c[-1] / c[-3] - 1) * 100,
+        'last_3d_return': (c[-1] / c[-(three_days + 1)] - 1) * 100,
     }
 
     return features
