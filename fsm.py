@@ -1,9 +1,9 @@
 # fsm.py
 from enum import Enum, auto
-from forecaster import Forecaster
+from ensemble import EnsembleForecaster
 from signal_generator import SignalGenerator
 from notifier import Notifier
-from visualization import plot_forecast_cloud
+from visualization import plot_forecast_bars
 import os
 
 
@@ -20,8 +20,7 @@ class State(Enum):
 class TradingFSM:
     def __init__(self, client, db, symbol, timeframe,
                  ntfy_topic=None, enable_notifications=True,
-                 signal_threshold_strong=5.0, signal_threshold_weak=2.5,
-                 enable_visualization=True, viz_history_days=60, viz_samples=300):
+                 enable_visualization=True):
         self.client = client
         self.db = db
         self.symbol = symbol
@@ -29,23 +28,18 @@ class TradingFSM:
 
         # Визуализация
         self.enable_visualization = enable_visualization
-        self.viz_history_days = viz_history_days
-        self.viz_samples = viz_samples
         self.forecast_image_path = None
 
         # Загружаем модель прогнозирования
         try:
-            self.forecaster = Forecaster()
+            self.forecaster = EnsembleForecaster()
         except FileNotFoundError as e:
             print(f"⚠️  {e}")
             print("   Бот продолжит работу без прогнозов.")
             self.forecaster = None
 
         # Генератор сигналов
-        self.signal_generator = SignalGenerator(
-            threshold_strong=signal_threshold_strong,
-            threshold_weak=signal_threshold_weak
-        )
+        self.signal_generator = SignalGenerator()
 
         # Уведомления
         self.enable_notifications = enable_notifications and ntfy_topic is not None
@@ -133,15 +127,13 @@ class TradingFSM:
                     # Путь к файлу
                     from datetime import datetime
                     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-                    self.forecast_image_path = f'forecasts/{timestamp}_forecast_cloud.png'
+                    self.forecast_image_path = f'forecasts/{timestamp}_forecast_bars.png'
 
                     # Генерируем график
-                    plot_forecast_cloud(
+                    plot_forecast_bars(
                         history_df=df,
                         forecast=self.forecast,
-                        save_path=self.forecast_image_path,
-                        n_samples=self.viz_samples,
-                        history_days=self.viz_history_days * self.forecaster.candles_per_day
+                        save_path=self.forecast_image_path
                     )
 
                     self.state = State.NOTIFY
@@ -162,16 +154,9 @@ class TradingFSM:
                         # Формируем сообщение
                         message = self.signal_generator.format_signal(self.signal, self.forecast)
 
-                        # Определяем приоритет по силе сигнала
-                        if self.signal['signal'].startswith('STRONG'):
-                            priority = 5
-                            tags = ['chart_with_upwards_trend', 'fire']
-                        elif self.signal['confidence'] == 'HIGH':
-                            priority = 4
-                            tags = ['chart_with_upwards_trend', 'zap']
-                        else:
-                            priority = 3
-                            tags = ['chart', 'bell']
+                        # Приоритет и теги уведомления зависят от режима волатильности
+                        priority = self.signal['priority']
+                        tags = self.signal['tags']
 
                         # Отправляем с графиком (если он есть)
                         if self.forecast_image_path and os.path.exists(self.forecast_image_path):

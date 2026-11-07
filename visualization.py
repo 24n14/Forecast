@@ -1,11 +1,12 @@
 # visualization.py
-# Визуализация прогноза в виде точечного облака сценариев
+# Визуализация прогноза: гистограмма вероятности роста/падения по дням
+import math
+
 import numpy as np
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')  # Без GUI: бот работает в фоне / по расписанию
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 
 Z90 = 1.645  # z-оценка 95-го квантиля нормального распределения
 
@@ -18,121 +19,144 @@ def _quantile_params(forecast):
     sigma_up = max(q95 - q50, 1e-6) / Z90
     return q50, sigma_down, sigma_up
 
-def generate_scenario_samples(forecast, n_samples=300, rng=None):
-    """
-    Генерирует траектории цены на forecast_horizon дней.
+# ---------------------------------------------------------------------------
+# Гистограмма бычьей/медвежьей вероятности по дням
+# ---------------------------------------------------------------------------
+BULL = '#5fe39a'       # рост (пара подобрана: ΔE при дейтеранопии 25, контраст с фоном ≥ 3:1)
+BEAR = '#c8373d'       # падение
+BG_PAGE, BG_PLOT = '#0A0D12', '#0F131C'
+INK, INK_MUTED = '#F0EFEC', '#9A9FAB'
+MONTHS_RU = ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
 
-    Каждая траектория — случайное блуждание (броуновское движение), поэтому
-    разброс растёт как √t: завтра почти рядом с текущей ценой, к концу
-    горизонта — во всю ширину прогноза. Отклонения вниз и вверх
-    масштабируются разными σ (split-normal), так что на последнем дне
-    5-й и 95-й перцентили облака совпадают с q05 и q95 модели.
 
-    Returns:
-        np.array shape (n_samples, horizon + 1): цены, столбец 0 — текущая цена
+def _dim(color, k=0.55):
+    """Сплошной приглушённый цвет (смесь с фоном) — без прозрачности, чтобы линии не просвечивали."""
+    c, bg = np.array(matplotlib.colors.to_rgb(color)), np.array(matplotlib.colors.to_rgb(BG_PLOT))
+    return tuple(k * c + (1 - k) * bg)
+
+
+def _ru_date(d):
+    return f"{d.day:02d} {MONTHS_RU[d.month - 1]}"
+
+
+def _normal_cdf(x):
+    return 0.5 * (1 + np.vectorize(math.erf)(np.asarray(x) / np.sqrt(2)))
+
+
+def daily_up_probability(forecast):
+    """P(цена выше текущей) на каждый день горизонта.
+
+    Та же модель траекторий, что и у облака: медиана движется линейно,
+    разброс растёт как √t, вниз и вверх — свои σ (split-normal по q05/q50/q95).
     """
-    rng = rng or np.random.default_rng()
-    current_price = forecast['current_price']
     horizon = forecast['forecast_horizon']
     q50, sigma_down, sigma_up = _quantile_params(forecast)
-
-    t = np.arange(horizon + 1)
-    # Стандартное броуновское движение, нормированное так, что z[:, H] ~ N(0, 1)
-    steps = rng.standard_normal((n_samples, horizon)) / np.sqrt(horizon)
-    z = np.concatenate([np.zeros((n_samples, 1)), np.cumsum(steps, axis=1)], axis=1)
-
-    drift = q50 * t / horizon                       # медиана движется линейно
-    change = drift + np.where(z > 0, z * sigma_up, z * sigma_down)
-    return current_price * (1 + change / 100)
-
-def quantile_band(forecast):
-    """Линии q05 / q50 / q95 по дням — та же форма √t, что и у облака."""
-    current_price = forecast['current_price']
-    horizon = forecast['forecast_horizon']
-    q50, sigma_down, sigma_up = _quantile_params(forecast)
-
-    t = np.arange(horizon + 1)
+    t = np.arange(1, horizon + 1)
     drift = q50 * t / horizon
-    spread = Z90 * np.sqrt(t / horizon)
-    to_price = lambda pct: current_price * (1 + pct / 100)
-    return (to_price(drift - spread * sigma_down),
-            to_price(drift),
-            to_price(drift + spread * sigma_up))
+    scale = np.sqrt(t / horizon)
+    # change = drift + z·σ, σ = σ_up при z > 0 и σ_down при z < 0 → P(change > 0)
+    sigma = np.where(drift >= 0, sigma_down, sigma_up) * scale
+    return _normal_cdf(drift / sigma)
 
-def plot_forecast_cloud(history_df, forecast, save_path='forecast_cloud.png',
-                        n_samples=300, history_days=60, symbol='BTC/USDT'):
-    """Рисует историю цены и облако сценариев прогноза, сохраняет PNG."""
-    history_slice = history_df.sort_values('time').tail(history_days)
 
-    current_date = forecast['current_date']
-    current_price = forecast['current_price']
+def past_daily_changes(history_df, current_date, days=7):
+    """Изменение цены (в %) за последние `days` завершённых календарных дней."""
+    h = history_df.sort_values('time')
+    daily_close = h.set_index('time')['close'].resample('D').last().dropna()
+    daily_close = daily_close[daily_close.index < pd.Timestamp(current_date).normalize()]
+    change = daily_close.pct_change().dropna() * 100
+    return change.tail(days)
+
+
+def plot_forecast_bars(history_df, forecast, save_path='forecast_bars.png',
+                       past_days=7, symbol='BTC/USDT'):
+    """14 столбцов по дням: 7 прошлых (факт) + 7 прогноза (вероятность роста/падения).
+
+    В каждом столбце зелёная часть сверху — доля роста, красная снизу — доля падения.
+    """
+    past = past_daily_changes(history_df, forecast['current_date'], past_days)
+    p_up = daily_up_probability(forecast)
+    today = pd.Timestamp(forecast['current_date']).normalize()
+
+    past_dates = list(past.index)
+    fut_dates = [today + pd.Timedelta(days=d) for d in range(1, len(p_up) + 1)]
+    up = np.r_[(past.values > 0).astype(float), p_up]
+    n_past = len(past)
+    x = np.arange(len(up))
+
+    fig, ax = plt.subplots(figsize=(14, 7), facecolor=BG_PAGE)
+    ax.set_facecolor(BG_PLOT)
+    width = 0.78
+
+    for i in x:
+        down = 1 - up[i]
+        # Красная часть снизу, зелёная сверху; зазор 2px цветом фона между частями
+        # Прошлые дни приглушены: это факт, а не прогноз
+        bull, bear = (_dim(BULL), _dim(BEAR)) if i < n_past else (BULL, BEAR)
+        if down > 0:
+            ax.bar(i, down * 100, width, bottom=0, color=bear,
+                   edgecolor=BG_PLOT, linewidth=2, zorder=3)
+        if up[i] > 0:
+            ax.bar(i, up[i] * 100, width, bottom=down * 100, color=bull,
+                   edgecolor=BG_PLOT, linewidth=2, zorder=3)
+
+        if i < n_past:
+            ch = past.values[i]
+            arrow = '▲' if ch > 0 else '▼'
+            ax.text(i, 50, f"{arrow}\n{ch:+.1f}%", ha='center', va='center', fontsize=10,
+                    color='#0b0b0b' if ch > 0 else 'white', fontweight='bold', zorder=5)
+        else:
+            # Подписи долей внутри частей, если часть достаточно высокая
+            if up[i] >= 0.12:
+                ax.text(i, (1 - up[i] / 2) * 100, f"{up[i]:.0%}", ha='center', va='center',
+                        fontsize=11, color='#0b0b0b', fontweight='bold', zorder=5)
+            if down >= 0.12:
+                ax.text(i, down / 2 * 100, f"{down:.0%}", ha='center', va='center',
+                        fontsize=11, color='white', fontweight='bold', zorder=5)
+
+    # Граница "сегодня" и линия 50%
+    ax.axvline(n_past - 0.5, color='#38BDF8', linestyle=':', linewidth=1.5, alpha=0.8, zorder=4)
+    ax.axhline(50, color=INK_MUTED, linestyle='--', linewidth=1, alpha=0.5, zorder=2)
+    ax.text(n_past - 0.5, -0.07, f'сегодня\n{_ru_date(today)}', transform=ax.get_xaxis_transform(),
+            ha='center', va='top', color='#38BDF8', fontsize=9, fontweight='bold')
+    ax.text(n_past / 2 - 0.5, 103, 'ФАКТ: рост / падение за день', ha='center', va='bottom',
+            color=INK_MUTED, fontsize=11)
+    ax.text(n_past + len(p_up) / 2 - 0.5, 103, 'ПРОГНОЗ: вероятность, что цена выше / ниже текущей',
+            ha='center', va='bottom', color=INK, fontsize=11)
+
+    labels = [_ru_date(d) for d in past_dates + fut_dates]
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, color=INK, fontsize=9)
+    for lbl in ax.get_xticklabels()[:n_past]:
+        lbl.set_color(INK_MUTED)
+    ax.set_xlim(-0.6, len(up) - 0.4)
+    ax.set_ylim(0, 112)
+    ax.set_yticks([0, 25, 50, 75, 100])
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f'{v:.0f}%'))
+    ax.tick_params(colors=INK_MUTED, labelsize=9, length=0)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.grid(True, axis='y', alpha=0.08, color='white', linewidth=0.5, zorder=0)
+
     horizon = forecast['forecast_horizon']
-    forecast_dates = pd.date_range(current_date, periods=horizon + 1, freq='D')
+    ax.set_title(f'{symbol} — рост или падение по дням: 7 дней факта + прогноз на {horizon} дней',
+                 color='white', fontsize=14, fontweight='bold', pad=28)
 
-    trajectories = generate_scenario_samples(forecast, n_samples)
-    q05_line, q50_line, q95_line = quantile_band(forecast)
+    legend = ax.legend(handles=[plt.Rectangle((0, 0), 1, 1, color=BULL, label='Рост (бычий)'),
+                                plt.Rectangle((0, 0), 1, 1, color=BEAR, label='Падение (медвежий)')],
+                       loc='upper left', bbox_to_anchor=(0, -0.08), ncol=2, fontsize=10,
+                       facecolor=BG_PAGE, edgecolor='none', labelcolor=INK, frameon=False)
 
-    fig, ax = plt.subplots(figsize=(14, 7), facecolor='#0A0D12')
-    ax.set_facecolor('#0F131C')
+    q = forecast['quantiles']
+    price = forecast['current_price']
+    info = (rf"Текущая: \${price:,.0f}   |   Коридор 90% на {horizon} дн.: "
+            rf"\${q[0.05]['target_price']:,.0f} — \${q[0.95]['target_price']:,.0f}   |   "
+            f"P(рост к дню {horizon}): {p_up[-1]:.0%}")
+    fig.text(0.98, 0.025, info, ha='right', va='bottom', color=INK, fontsize=10,
+             bbox=dict(boxstyle='round,pad=0.6', facecolor='#161D2B', edgecolor='#38BDF8', linewidth=1.2))
 
-    # Облако: все точки одним вызовом; яркость падает по мере удаления от медианы
-    xs = np.tile(mdates.date2num(forecast_dates[1:]), n_samples)
-    ys = trajectories[:, 1:].ravel()
-    half_width = np.tile(np.maximum(q95_line[1:] - q05_line[1:], 1e-9) / 2, n_samples)
-    dist = np.abs(ys - np.tile(q50_line[1:], n_samples)) / half_width
-    colors = np.zeros((len(ys), 4))
-    colors[:, :3] = matplotlib.colors.to_rgb('#6EE7B7')
-    colors[:, 3] = np.clip(0.35 * (1 - 0.6 * np.minimum(dist, 1.5)), 0.04, 0.35)
-    ax.scatter(xs, ys, c=colors, s=7, linewidths=0, zorder=3)
-
-    # Зона 90% и квантильные линии
-    ax.fill_between(forecast_dates, q05_line, q95_line,
-                    color='#6EE7B7', alpha=0.08, zorder=1, label='Зона 90%')
-    ax.plot(forecast_dates, q50_line, color='#6EE7B7', linewidth=3,
-            zorder=4, label='Медиана (q50)')
-    ax.plot(forecast_dates, q05_line, color='#E9A568', linewidth=2,
-            linestyle='--', zorder=4, label='q05 / q95')
-    ax.plot(forecast_dates, q95_line, color='#E9A568', linewidth=2,
-            linestyle='--', zorder=4)
-
-    # История и точка "сегодня"
-    ax.plot(history_slice['time'], history_slice['close'],
-            color='#3B6DFF', linewidth=2.5, zorder=5, label='История')
-    ax.scatter([current_date], [current_price], color='#38BDF8', s=100,
-               zorder=10, edgecolors='white', linewidths=1.5)
-    ax.axvline(current_date, color='#38BDF8', linestyle=':', linewidth=1.5, alpha=0.5)
-
-    # Оформление (символ $ экранируем: иначе matplotlib включает режим формул)
-    ax.set_title(f'{symbol} — прогноз на {horizon} дней | {n_samples} сценариев',
-                 color='white', fontsize=14, fontweight='bold', pad=20)
-    ax.set_xlabel('Дата', color='white', fontsize=11)
-    ax.set_ylabel(r'Цена, \$', color='white', fontsize=11)
-    ax.tick_params(colors='white', labelsize=9)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b'))
-    ax.xaxis.set_major_locator(mdates.DayLocator(interval=7))
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: rf'\${x:,.0f}'))
-    ax.grid(True, alpha=0.15, color='white', linewidth=0.5)
-    ax.text(current_date, 1.0, ' Сегодня', transform=ax.get_xaxis_transform(),
-            color='#38BDF8', fontsize=10, va='top', ha='left')
-
-    legend = ax.legend(loc='upper left', fontsize=10, facecolor='#161D2B',
-                       edgecolor='#38BDF8', labelcolor='white', framealpha=0.9)
-    legend.get_frame().set_linewidth(1.5)
-
-    q50_pct = forecast['quantiles'][0.5]['change_pct']
-    info_text = (
-        rf"Текущая: \${current_price:,.0f}" "\n"
-        rf"Медиана: \${q50_line[-1]:,.0f} ({q50_pct:+.1f}%)" "\n"
-        rf"Диапазон 90%: \${q05_line[-1]:,.0f} — \${q95_line[-1]:,.0f}"
-    )
-    ax.text(0.98, 0.02, info_text, transform=ax.transAxes, fontsize=9,
-            color='white', ha='right', va='bottom',
-            bbox=dict(boxstyle='round,pad=0.8', facecolor='#161D2B',
-                      edgecolor='#38BDF8', alpha=0.9, linewidth=1.5))
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, facecolor='#0A0D12', edgecolor='none')
+    plt.tight_layout(rect=(0, 0.06, 1, 1))
+    plt.savefig(save_path, dpi=150, facecolor=BG_PAGE, edgecolor='none')
     plt.close(fig)
-
     print(f"📊 График сохранён: {save_path}")
     return save_path
