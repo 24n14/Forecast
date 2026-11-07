@@ -16,7 +16,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from config import SYMBOL, DB_DSN, TIMEFRAME, FORECAST_DAYS, candles_per_day
+from config import SYMBOL, DB_DSN, TIMEFRAME, FORECAST_DAYS, MOVE_THRESHOLDS, candles_per_day
 
 QUANTILES = [0.05, 0.5, 0.95]
 MIN_TRAIN_DAYS = 60     # Минимум истории (после прогрева) для первого шага walk-forward
@@ -26,6 +26,8 @@ MODEL_PATH = os.path.join(MODEL_DIR, "har_model.pkl")
 REPORT_PATH = os.path.join(MODEL_DIR, "walk_forward_har.csv")
 
 HAR_COLS = ['har_d', 'har_w', 'har_m']
+REGIMES = ('CALM', 'NORMAL', 'VOLATILE')
+Z_GRID_LEVELS = np.linspace(0, 1, 201)   # распределение z храним 201 перцентилем
 EPS = 1e-12
 
 
@@ -70,7 +72,26 @@ def fit_har(train):
         'beta': beta,
         'smear': smear,
         'z_quantiles': np.quantile(z, QUANTILES),
+        'z_grid': np.quantile(z, Z_GRID_LEVELS),
+        # Границы режимов: терцили исторического прогноза σ
+        'sigma_terciles': np.quantile(sigma, [1 / 3, 2 / 3]),
+        'sigma_sorted': np.sort(sigma)[::max(1, len(sigma) // 500)],
     }
+
+
+def move_probability(params, sigma, threshold_pct):
+    """P(|изменение цены| > threshold) по эмпирическому распределению z = ret / σ."""
+    z_lo, z_hi = -threshold_pct / sigma, threshold_pct / sigma
+    cdf = lambda x: float(np.interp(x, params['z_grid'], Z_GRID_LEVELS))
+    return cdf(z_lo) + (1.0 - cdf(z_hi))
+
+
+def classify_regime(params, sigma):
+    """Режим волатильности и перцентиль σ среди исторических прогнозов."""
+    lo, hi = params['sigma_terciles']
+    regime = REGIMES[0] if sigma < lo else REGIMES[2] if sigma > hi else REGIMES[1]
+    pct = float(np.searchsorted(params['sigma_sorted'], sigma) / len(params['sigma_sorted']) * 100)
+    return regime, pct
 
 
 def predict_sigma(params, har_row):
@@ -116,7 +137,13 @@ def walk_forward(F, cpd, horizon):
         pred = predict_quantiles(params, F.loc[o, HAR_COLS])
         base = np.quantile(tr['ret'].values, QUANTILES)
         y = F.loc[o, 'ret']
+        sig = predict_sigma(params, F.loc[o, HAR_COLS])
+        regime, _ = classify_regime(params, sig)
+        moves = {f'p_move{int(t)}': move_probability(params, sig, t) for t in MOVE_THRESHOLDS}
+        base_moves = {f'base_move{int(t)}': float(np.mean(np.abs(tr['ret']) > t)) for t in MOVE_THRESHOLDS}
         rows.append({
+            'regime': regime,
+            **moves, **base_moves,
             'origin_time': F.loc[o, 'time'],
             'actual': y,
             'sigma': predict_sigma(params, F.loc[o, HAR_COLS]),
@@ -155,6 +182,22 @@ def print_report(rep, horizon, step):
         m = regime == t
         print(f"  {t:9s} HAR {rep['in_interval'][m].mean():4.0%} / {width[m].mean():5.1f}   "
               f"база {rep['base_in_interval'][m].mean():4.0%} / {base_width[m].mean():5.1f}")
+
+    # Проверка сигнала: предсказанный режим vs фактический размах движения
+    absr = rep['actual'].abs()
+    print("Сигнал по режиму (режим определён только по прошлым данным):")
+    for reg_name in REGIMES:
+        m = rep['regime'] == reg_name
+        if m.any():
+            cols = "  ".join(f">{int(t)}%: прогноз {rep[f'p_move{int(t)}'][m].mean():4.0%} / факт {np.mean(absr[m] > t):4.0%}"
+                             for t in MOVE_THRESHOLDS)
+            print(f"  {reg_name:9s} шагов {m.sum():3d}  ср.|движение| {absr[m].mean():4.1f}%  {cols}")
+    for t in MOVE_THRESHOLDS:
+        hit = (absr > t).astype(float)
+        bs_model = np.mean((rep[f'p_move{int(t)}'] - hit) ** 2)
+        bs_base = np.mean((rep[f'base_move{int(t)}'] - hit) ** 2)
+        print(f"  Brier P(|движение|>{int(t)}%): модель {bs_model:.4f}, база {bs_base:.4f} "
+              f"({(1 - bs_model / bs_base) * 100:+.1f}% к базе)")
     return {'improvement_pct': impr, 'dm_t': dm, 'coverage': float(rep['in_interval'].mean()), 'n_steps': n}
 
 
@@ -213,7 +256,11 @@ class HarForecaster:
         changes = self.params['z_quantiles'] * sigma
 
         current_price = float(last['close'])
+        regime, sigma_pct_rank = classify_regime(self.params, sigma)
         return {
+            'regime': regime,
+            'sigma_percentile': sigma_pct_rank,
+            'move_probs': {t: move_probability(self.params, sigma, t) for t in MOVE_THRESHOLDS},
             'current_price': current_price,
             'current_date': last['time'],
             'forecast_horizon': self.forecast_horizon,

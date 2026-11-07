@@ -1,120 +1,104 @@
 # signal_generator.py
-# Модуль для генерации торговых сигналов на основе прогноза
+# Сигнал по режиму волатильности.
+#
+# Модель (HAR) прогнозирует не направление, а размах движения цены за горизонт.
+# Поэтому сигнал говорит о режиме рынка и о вероятности сильного движения,
+# а направление явно помечается как непрогнозируемое.
+
+REGIME_INFO = {
+    'CALM': {
+        'emoji': '🟦',
+        'title': 'СПОКОЙНЫЙ РЕЖИМ',
+        'hint': 'Ожидается движение меньше обычного: коридор узкий.',
+        'priority': 2,
+        'tags': ['zzz'],
+    },
+    'NORMAL': {
+        'emoji': '⚪',
+        'title': 'ОБЫЧНЫЙ РЕЖИМ',
+        'hint': 'Волатильность в пределах нормы.',
+        'priority': 3,
+        'tags': ['chart'],
+    },
+    'VOLATILE': {
+        'emoji': '🟧⚡',
+        'title': 'ВЫСОКАЯ ВОЛАТИЛЬНОСТЬ',
+        'hint': 'Повышен риск сильного движения в любую сторону.',
+        'priority': 4,
+        'tags': ['warning', 'zap'],
+    },
+}
 
 
 class SignalGenerator:
-    """Генерирует сигналы на основе квантильного прогноза."""
-
-    def __init__(self, threshold_strong=5.0, threshold_weak=2.5):
-        """
-        Args:
-            threshold_strong: порог для сильного сигнала (в %)
-            threshold_weak: порог для слабого сигнала (в %)
-        """
-        self.threshold_strong = threshold_strong
-        self.threshold_weak = threshold_weak
+    """Формирует сигнал режима волатильности из прогноза HarForecaster."""
 
     def generate(self, forecast):
         """
-        Генерирует сигнал на основе прогноза.
-
-        Args:
-            forecast: dict с прогнозом от Forecaster.predict()
-
         Returns:
-            dict: {
-                'signal': 'STRONG_BULLISH' | 'WEAK_BULLISH' | 'NEUTRAL' | 'WEAK_BEARISH' | 'STRONG_BEARISH',
-                'confidence': 'HIGH' | 'MEDIUM' | 'LOW',
-            }
+            dict: {'signal': 'CALM' | 'NORMAL' | 'VOLATILE', 'emoji', 'title', 'hint', 'priority', 'tags'}
         """
-        q05 = forecast['quantiles'][0.05]['change_pct']
-        q50 = forecast['quantiles'][0.5]['change_pct']
-        q95 = forecast['quantiles'][0.95]['change_pct']
-
-        # Определяем направление по медиане
-        if q50 >= self.threshold_strong:
-            signal = 'STRONG_BULLISH'
-            emoji = '🟢📈'
-        elif q50 >= self.threshold_weak:
-            signal = 'WEAK_BULLISH'
-            emoji = '🟢'
-        elif q50 <= -self.threshold_strong:
-            signal = 'STRONG_BEARISH'
-            emoji = '🔴📉'
-        elif q50 <= -self.threshold_weak:
-            signal = 'WEAK_BEARISH'
-            emoji = '🔴'
-        else:
-            signal = 'NEUTRAL'
-            emoji = '⚪'
-
-        # Оцениваем уверенность: если q05 и q95 смотрят в одну сторону — высокая
-        if q05 > 0 and q95 > 0:
-            confidence = 'HIGH'
-            confidence_emoji = '🔥'
-        elif q05 < 0 and q95 < 0:
-            confidence = 'HIGH'
-            confidence_emoji = '🔥'
-        elif abs(q50) >= self.threshold_strong:
-            confidence = 'MEDIUM'
-            confidence_emoji = '⚡'
-        else:
-            confidence = 'LOW'
-            confidence_emoji = '💡'
-
-        return {
-            'signal': signal,
-            'confidence': confidence,
-            'emoji': emoji,
-            'confidence_emoji': confidence_emoji,
-        }
+        regime = forecast.get('regime', 'NORMAL')
+        return {'signal': regime, **REGIME_INFO[regime]}
 
     def format_signal(self, signal_data, forecast):
         """Форматирует сигнал и прогноз в читаемое сообщение."""
-        lines = []
-
-        # Заголовок
-        lines.append(f"{signal_data['emoji']} {signal_data['signal']}")
-        lines.append(f"{signal_data['confidence_emoji']} Уверенность: {signal_data['confidence']}")
-        lines.append("")
-
-        # Текущая цена
         current = forecast['current_price']
-        date = forecast['current_date'].strftime('%Y-%m-%d')
-        lines.append(f"💰 Текущая цена: ${current:,.2f}")
-        lines.append(f"📅 Дата: {date}")
-        lines.append(f"⏳ Горизонт: {forecast['forecast_horizon']} дней")
+        date = forecast['current_date'].strftime('%Y-%m-%d %H:%M')
+        q = forecast['quantiles']
+        lo, hi = q[0.05], q[0.95]
+
+        lines = [
+            f"{signal_data['emoji']} {signal_data['title']}",
+            signal_data['hint'],
+            "",
+            f"💰 Текущая цена: ${current:,.2f}",
+            f"📅 Данные на: {date}",
+            f"⏳ Горизонт: {forecast['forecast_horizon']} дней",
+        ]
+
         if 'sigma_pct' in forecast:
-            lines.append(f"🌊 Ожидаемая волатильность (σ): {forecast['sigma_pct']:.1f}%")
-        lines.append("")
+            rank = forecast.get('sigma_percentile')
+            if rank is None:
+                rank_txt = ""
+            elif rank < 50:
+                rank_txt = f" (ниже, чем в {100 - rank:.0f}% истории)"
+            else:
+                rank_txt = f" (выше, чем в {rank:.0f}% истории)"
+            lines.append(f"🌊 Ожидаемая волатильность σ: {forecast['sigma_pct']:.1f}%{rank_txt}")
 
-        # Прогноз по квантилям
-        lines.append("📊 Прогноз:")
-        for q, data in forecast['quantiles'].items():
-            q_label = f"q{int(q*100):02d}"
-            change = data['change_pct']
-            target = data['target_price']
-            emoji = "🟢" if change > 0 else "🔴" if change < 0 else "⚪"
-            lines.append(f"  {emoji} {q_label}: {change:+6.2f}% → ${target:,.2f}")
+        lines += [
+            "",
+            "📏 Коридор 90%:",
+            f"  🔻 {lo['change_pct']:+.1f}% → ${lo['target_price']:,.0f}",
+            f"  🔺 {hi['change_pct']:+.1f}% → ${hi['target_price']:,.0f}",
+        ]
 
+        if forecast.get('move_probs'):
+            lines += ["", "🎯 Вероятность движения в любую сторону:"]
+            for threshold, p in forecast['move_probs'].items():
+                lines.append(f"  больше {threshold:g}%: {p:.0%}")
+
+        lines += ["", "🧭 Направление: не прогнозируется (модель оценивает только размах)."]
         return '\n'.join(lines)
 
 
 if __name__ == "__main__":
-    # Тест
     import pandas as pd
 
     test_forecast = {
-        'current_price': 78409.90,
-        'current_date': pd.Timestamp('2026-11-04'),
+        'current_price': 75864.0,
+        'current_date': pd.Timestamp('2026-11-07'),
         'forecast_horizon': 7,
+        'sigma_pct': 6.3,
+        'sigma_percentile': 48,
+        'regime': 'NORMAL',
+        'move_probs': {5.0: 0.41, 10.0: 0.14},
         'quantiles': {
-            0.05: {'change_pct': -14.57, 'target_price': 66987.29},
-            0.5: {'change_pct': 3.46, 'target_price': 81121.86},
-            0.95: {'change_pct': 15.36, 'target_price': 90455.98},
-        }
+            0.05: {'change_pct': -9.16, 'target_price': 68914.86},
+            0.5: {'change_pct': 0.33, 'target_price': 76117.85},
+            0.95: {'change_pct': 12.58, 'target_price': 85407.66},
+        },
     }
-
     sg = SignalGenerator()
-    signal = sg.generate(test_forecast)
-    print(sg.format_signal(signal, test_forecast))
+    print(sg.format_signal(sg.generate(test_forecast), test_forecast))

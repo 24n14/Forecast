@@ -20,7 +20,6 @@ class State(Enum):
 class TradingFSM:
     def __init__(self, client, db, symbol, timeframe,
                  ntfy_topic=None, enable_notifications=True,
-                 signal_threshold_strong=5.0, signal_threshold_weak=2.5,
                  enable_visualization=True, viz_history_days=60, viz_samples=300):
         self.client = client
         self.db = db
@@ -42,10 +41,7 @@ class TradingFSM:
             self.forecaster = None
 
         # Генератор сигналов
-        self.signal_generator = SignalGenerator(
-            threshold_strong=signal_threshold_strong,
-            threshold_weak=signal_threshold_weak
-        )
+        self.signal_generator = SignalGenerator()
 
         # Уведомления
         self.enable_notifications = enable_notifications and ntfy_topic is not None
@@ -162,16 +158,9 @@ class TradingFSM:
                         # Формируем сообщение
                         message = self.signal_generator.format_signal(self.signal, self.forecast)
 
-                        # Определяем приоритет по силе сигнала
-                        if self.signal['signal'].startswith('STRONG'):
-                            priority = 5
-                            tags = ['chart_with_upwards_trend', 'fire']
-                        elif self.signal['confidence'] == 'HIGH':
-                            priority = 4
-                            tags = ['chart_with_upwards_trend', 'zap']
-                        else:
-                            priority = 3
-                            tags = ['chart', 'bell']
+                        # Приоритет и теги уведомления зависят от режима волатильности
+                        priority = self.signal['priority']
+                        tags = self.signal['tags']
 
                         # Отправляем с графиком (если он есть)
                         if self.forecast_image_path and os.path.exists(self.forecast_image_path):

@@ -5,7 +5,6 @@ import argparse
 from config import (
     SYMBOL, TIMEFRAME, DB_DSN,
     NTFY_TOPIC, ENABLE_NOTIFICATIONS,
-    SIGNAL_THRESHOLD_STRONG, SIGNAL_THRESHOLD_WEAK,
     ENABLE_VISUALIZATION, VIZ_HISTORY_DAYS, VIZ_SAMPLES,
     SCHEDULE_ENABLED, SCHEDULE_TIME, SCHEDULE_TIMEZONE
 )
@@ -29,8 +28,6 @@ def run_bot():
         timeframe=TIMEFRAME,
         ntfy_topic=NTFY_TOPIC,
         enable_notifications=ENABLE_NOTIFICATIONS,
-        signal_threshold_strong=SIGNAL_THRESHOLD_STRONG,
-        signal_threshold_weak=SIGNAL_THRESHOLD_WEAK,
         enable_visualization=ENABLE_VISUALIZATION,
         viz_history_days=VIZ_HISTORY_DAYS,
         viz_samples=VIZ_SAMPLES
