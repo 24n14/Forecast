@@ -8,8 +8,8 @@ NTFY_TOPIC = "forecaster_24n14"  # Топик ntfy.sh для уведомлен�
 ENABLE_NOTIFICATIONS = True      # Включить/выключить отправку уведомлений
 
 # --- Параметры сигналов ---
-SIGNAL_THRESHOLD_STRONG = 10.0   # Порог для сильного сигнала (в %)
-SIGNAL_THRESHOLD_WEAK = 5.0      # Порог для слабого сигнала (в %)
+SIGNAL_THRESHOLD_STRONG = 5.0    # Порог для сильного сигнала (в %, горизонт 7 дней)
+SIGNAL_THRESHOLD_WEAK = 2.5      # Порог для слабого сигнала (в %, горизонт 7 дней)
 
 # --- Визуализация ---
 ENABLE_VISUALIZATION = True      # Создавать графики прогнозов

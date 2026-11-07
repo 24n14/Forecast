@@ -20,7 +20,7 @@ class State(Enum):
 class TradingFSM:
     def __init__(self, client, db, symbol, timeframe,
                  ntfy_topic=None, enable_notifications=True,
-                 signal_threshold_strong=10.0, signal_threshold_weak=5.0,
+                 signal_threshold_strong=5.0, signal_threshold_weak=2.5,
                  enable_visualization=True, viz_history_days=60, viz_samples=300):
         self.client = client
         self.db = db

@@ -5,7 +5,7 @@
 class SignalGenerator:
     """Генерирует сигналы на основе квантильного прогноза."""
 
-    def __init__(self, threshold_strong=10.0, threshold_weak=5.0):
+    def __init__(self, threshold_strong=5.0, threshold_weak=2.5):
         """
         Args:
             threshold_strong: порог для сильного сигнала (в %)
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     test_forecast = {
         'current_price': 78409.90,
         'current_date': pd.Timestamp('2026-11-04'),
-        'forecast_horizon': 30,
+        'forecast_horizon': 7,
         'quantiles': {
             0.05: {'change_pct': -14.57, 'target_price': 66987.29},
             0.5: {'change_pct': 3.46, 'target_price': 81121.86},
