@@ -10,6 +10,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from vol_model import har_frame, HAR_COLS, train_set  # noqa: E402
 from ta_engine import add_features, aggregate_window  # noqa: E402
+from votes import compute_votes, VOTE_COLS  # noqa: E402
 
 CPD, H = 6, 42
 
@@ -54,6 +55,11 @@ def test_window_aggregate_has_no_lookahead():
     a = aggregate_window(add_features(df.copy()).iloc[cut - window + 1:cut + 1], CPD)
     b = aggregate_window(add_features(spoiled.copy()).iloc[cut - window + 1:cut + 1], CPD)
     assert all(np.isclose(a[k], b[k], equal_nan=True) for k in a)
+
+
+def test_votes_have_no_lookahead():
+    # Голоса из старых ботов: ZigZag и MIDAS особенно легко сделать "подглядывающими"
+    assert features_unaffected_by_future(lambda d: compute_votes(d, CPD), VOTE_COLS + ['vote_equal'])
 
 
 def test_method_catches_leaky_feature():
