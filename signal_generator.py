@@ -84,6 +84,8 @@ class SignalGenerator:
         lines.append(f"💰 Текущая цена: ${current:,.2f}")
         lines.append(f"📅 Дата: {date}")
         lines.append(f"⏳ Горизонт: {forecast['forecast_horizon']} дней")
+        if 'sigma_pct' in forecast:
+            lines.append(f"🌊 Ожидаемая волатильность (σ): {forecast['sigma_pct']:.1f}%")
         lines.append("")
 
         # Прогноз по квантилям
